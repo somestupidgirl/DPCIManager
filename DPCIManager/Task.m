@@ -8,6 +8,7 @@
 
 #import "Task.h"
 #import <objc/runtime.h>
+#import <dispatch/dispatch.h>
 #import <sys/types.h>
 #import <sys/socket.h>
 #import <ifaddrs.h>
@@ -144,10 +145,13 @@ static char kLockKey;
 @synthesize errorBlock;
 
 +(NSURL *)getURL:(NSString *)url withQuery:(NSDictionary *)dict{
-    NSMutableArray *temp = [NSMutableArray array];
+    NSURLComponents *components = [NSURLComponents componentsWithString:url];
+    if (!components) return nil;
+    NSMutableArray<NSURLQueryItem *> *items = [NSMutableArray array];
     for (NSString *key in dict)
-        [temp addObject:[NSString stringWithFormat:@"%@=%@", [key stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding], [[dict objectForKey:key] stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]]];
-    return [NSURL URLWithString:[NSString stringWithFormat:@"%@?%@", url, [temp componentsJoinedByString:@"&"]]];
+        [items addObject:[NSURLQueryItem queryItemWithName:key value:[[dict objectForKey:key] description]]];
+    components.queryItems = items;
+    return components.URL;
 }
 +(NSDictionary *)getMACs{
     struct ifaddrs *addrs;
@@ -171,8 +175,17 @@ static char kLockKey;
     if (ModalError(err)) return false;
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     [request setHTTPMethod:@"HEAD"];
-    NSHTTPURLResponse *response;
-    [NSURLConnection sendSynchronousRequest:request returningResponse:&response error:&err];
+    __block NSHTTPURLResponse *response = nil;
+    __block NSError *requestError = nil;
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *responseObject, NSError *error) {
+        response = (NSHTTPURLResponse *)responseObject;
+        requestError = error;
+        dispatch_semaphore_signal(semaphore);
+    }];
+    [task resume];
+    dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+    err = requestError;
     if (ModalError(err)) return false;
     NSString *urlmstr = [response.allHeaderFields objectForKey:@"Last-Modified"];
     NSDateFormatter *df = [NSDateFormatter new];
@@ -193,9 +206,16 @@ static char kLockKey;
     URLTask *temp = [URLTask new];
     temp.successBlock = successBlock;
     temp.errorBlock = errorBlock;
-    temp.connection = [[NSURLConnection alloc] initWithRequest:request delegate:temp startImmediately:false];
-    [temp.connection scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:!mode?NSDefaultRunLoopMode:mode];
-    [temp.connection start];
+    NSData *body = request.HTTPBody;
+    NSURLSessionTask *task = body ? [NSURLSession.sharedSession uploadTaskWithRequest:request fromData:body completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) errorBlock(error);
+        else successBlock(data ?: [NSData data]);
+    }] : [NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) errorBlock(error);
+        else successBlock(data ?: [NSData data]);
+    }];
+    (void)mode;
+    [task resume];
     return temp;
 }
 #pragma mark NSURLConnectionDataDelegate
@@ -243,7 +263,7 @@ static char kLockKey;
 @implementation NSAlert (HyperlinkAdditions)
 
 +(NSTextView *)hyperlink:(NSString *)hyperlink title:(NSString *)title{
-    NSDictionary *link = @{NSFontAttributeName:[NSFont systemFontOfSize:NSFont.smallSystemFontSize], NSLinkAttributeName:hyperlink, NSForegroundColorAttributeName:[NSColor blueColor], NSUnderlineStyleAttributeName:@(NSSingleUnderlineStyle)};
+    NSDictionary *link = @{NSFontAttributeName:[NSFont systemFontOfSize:NSFont.smallSystemFontSize], NSLinkAttributeName:hyperlink, NSForegroundColorAttributeName:[NSColor blueColor], NSUnderlineStyleAttributeName:@(NSUnderlineStyleSingle)};
     CGSize size = [title sizeWithAttributes:link];
     NSTextView *temp = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, size.width, size.height)];
     [temp.textStorage setAttributedString:[[NSAttributedString alloc] initWithString:title attributes:link]];
@@ -254,7 +274,12 @@ static char kLockKey;
 +(NSAlert *)alertWithMessageTextAndView:(NSString *)message defaultButton:(NSString *)defaultButton alternateButton:(NSString *)alternateButton otherButton:(NSString *)otherButton accessoryView:(NSView *)view informativeTextWithFormat:(NSString *)format, ...{
     va_list args;
     va_start(args, format);
-    NSAlert *temp = [NSAlert alertWithMessageText:message defaultButton:defaultButton alternateButton:alternateButton otherButton:otherButton informativeTextWithFormat:@"%@", [[NSString alloc] initWithFormat:format arguments:args]];
+    NSAlert *temp = [NSAlert new];
+    temp.messageText = message;
+    temp.informativeText = [[NSString alloc] initWithFormat:format arguments:args];
+    if (defaultButton) [temp addButtonWithTitle:defaultButton];
+    if (alternateButton) [temp addButtonWithTitle:alternateButton];
+    if (otherButton) [temp addButtonWithTitle:otherButton];
     va_end(args);
     [temp setAccessoryView:view];
     return temp;

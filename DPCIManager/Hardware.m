@@ -20,10 +20,10 @@
 //TODO: add chimera/chameleon validator?
 +(void)acpitables:(NSString *)only{//TODO: proc_kmsgbuf
     io_service_t expert;
-    if ((expert = IOServiceGetMatchingService(kIOMasterPortDefault, IOServiceMatching("AppleACPIPlatformExpert")))){
+    if ((expert = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleACPIPlatformExpert")))){
         NSOpenPanel *open = DirectoryChooser();
         [open setTitle:@"Save ACPI Tables"];
-        if ([open runModal] == NSFileHandlingPanelOKButton) {//TODO: detect injection?
+        if ([open runModal] == NSModalResponseOK) {//TODO: detect injection?
             NSDictionary *tables = (__bridge_transfer NSDictionary *)IORegistryEntryCreateCFProperty(expert, CFSTR("ACPI Tables"), kCFAllocatorDefault, 0);
             if (!only)
                 [[NSPropertyListSerialization dataWithPropertyList:@{@"Hostname":NSHost.currentHost.localizedName, @"Tables":tables} format:NSPropertyListBinaryFormat_v1_0 options:0 error:nil] writeToFile:[NSString stringWithFormat:@"%@/%@.acpi", open.URL.path, NSHost.currentHost.localizedName] atomically:true];
@@ -39,11 +39,11 @@
 +(NSString *)bdmesg{
     io_service_t expert;
     NSString *bdmesg;
-    if ((expert = IOServiceGetMatchingService(kIOMasterPortDefault, IOServiceMatching("IOPlatformExpertDevice")))){
+    if ((expert = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice")))){
         bdmesg = [pciDevice grabString:CFSTR("boot-log") forService:expert];
         IOObjectRelease(expert);
     }
-    if (!bdmesg.length && (expert = IORegistryEntryFromPath(kIOMasterPortDefault, "IODeviceTree:/efi/platform"))) {
+    if (!bdmesg.length && (expert = IORegistryEntryFromPath(kIOMainPortDefault, "IODeviceTree:/efi/platform"))) {
         bdmesg = [pciDevice grabString:CFSTR("boot-log") forService:expert];
         IOObjectRelease(expert);
     }
@@ -69,7 +69,7 @@
     io_service_t service;
     io_service_t parent;
     io_name_t name;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("AtiFbStub"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AtiFbStub"), &itThis) == KERN_SUCCESS) {
         NSMutableDictionary *card;
         int ports = 0;
         unsigned long long old;
@@ -97,7 +97,7 @@
         }
         IOObjectRelease(itThis);
     }
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("IONDRVDevice"), &itThis) == KERN_SUCCESS){
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IONDRVDevice"), &itThis) == KERN_SUCCESS){
         NSMutableDictionary *card;
         int ports = 0;
         unsigned long long old;
@@ -128,7 +128,7 @@
         }
         IOObjectRelease(itThis);
     }
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("AppleIntelFramebuffer"), &itThis) == KERN_SUCCESS){
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AppleIntelFramebuffer"), &itThis) == KERN_SUCCESS){
         NSMutableDictionary *card;
         int ports = 0;
         unsigned long long old;
@@ -166,7 +166,7 @@
 +(NSArray *)listNetwork{
     NSMutableArray *temp = [NSMutableArray array];
     io_iterator_t itThis;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("IONetworkInterface"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IONetworkInterface"), &itThis) == KERN_SUCCESS) {
         io_service_t service;
         while((service = IOIteratorNext(itThis))){
             io_service_t parent;
@@ -203,7 +203,7 @@
     io_service_t service;
     io_service_t parent;
     io_name_t name;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("VoodooHDADevice"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("VoodooHDADevice"), &itThis) == KERN_SUCCESS) {
         while((service = IOIteratorNext(itThis))) {
             IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent);
             IORegistryEntryGetName(parent, name);
@@ -235,7 +235,7 @@
         }
         IOObjectRelease(itThis);
     }
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("AppleHDAController"), &itThis) == KERN_SUCCESS){
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AppleHDAController"), &itThis) == KERN_SUCCESS){
         while((service = IOIteratorNext(itThis))) {
             IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent);
             IORegistryEntryGetName(parent, name);
@@ -266,7 +266,7 @@
     for(pciDevice *pci in [(AppDelegate *)[NSApp delegate] pcis]) {
         matchString = [NSString stringWithFormat:kPCIFormat, pci.vendor.integerValue, pci.device.integerValue];
         if (pci.pciClassCode.integerValue == 0x40300 && ![filter containsObject:matchString]) {
-            if ((service = IOServiceGetMatchingService(kIOMasterPortDefault, IORegistryEntryIDMatching(pci.entryID)))){
+            if ((service = IOServiceGetMatchingService(kIOMainPortDefault, IORegistryEntryIDMatching(pci.entryID)))){
                 io_connect_t connect;
                 if (IOServiceOpen(service, mach_task_self(), 0, &connect) == KERN_SUCCESS){
                     //FIXME: Map Memory
@@ -283,7 +283,7 @@
     NSMutableArray *temp = [NSMutableArray array];
     io_iterator_t itThis;
     io_service_t service;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("IOAHCIBlockStorageDevice"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOAHCIBlockStorageDevice"), &itThis) == KERN_SUCCESS) {
         while((service = IOIteratorNext(itThis))){
             NSDictionary *protocol = (__bridge_transfer NSDictionary *)IORegistryEntryCreateCFProperty(service, CFSTR("Protocol Characteristics"), kCFAllocatorDefault, 0), *device = (__bridge_transfer NSDictionary *)IORegistryEntryCreateCFProperty(service,CFSTR("Device Characteristics"), kCFAllocatorDefault, 0);
             [temp addObject:@{@"model":[device objectForKey:@"Product Name"]?:@"", @"block":[device objectForKey:@"Physical Block Size"]?:@0, @"inter":[protocol objectForKey:@"Physical Interconnect"]?:@"", @"loc":[protocol objectForKey:@"Physical Interconnect Location"]?:@""}];
@@ -291,7 +291,7 @@
         }
         IOObjectRelease(itThis);
     }
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("IOSCSIHierarchicalLogicalUnit"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOSCSIHierarchicalLogicalUnit"), &itThis) == KERN_SUCCESS) {
         io_service_t child, child1, child2, child3;
         while((service = IOIteratorNext(itThis))){
             NSDictionary *protocol = (__bridge_transfer NSDictionary *)IORegistryEntryCreateCFProperty(service, CFSTR("Protocol Characteristics"), kCFAllocatorDefault, 0);

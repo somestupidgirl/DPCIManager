@@ -7,6 +7,7 @@
 
 #import <Foundation/Foundation.h>
 #import <mach-o/getsect.h>
+#import <mach-o/ldsyms.h>
 #import <string.h>
 #import "DataTypeHandler.h"
 #import "DataTypes.h"
@@ -94,16 +95,31 @@
  * @return Fetch date
  */
 - (NSString *) loadPCIIDs {
-    unsigned long len;
-    char *handle = strdup(getsectdata("__TEXT", "__pci_ids", &len));
+    unsigned long len = 0;
+    const uint8_t *section = getsectiondata(&_mh_execute_header, "__TEXT", "__pci_ids", &len);
+    NSString *source = nil;
+    if (section && len) {
+        source = [[NSString alloc] initWithBytes:section length:len encoding:NSUTF8StringEncoding];
+    }
+    if (!source || [source rangeOfString:@"Version:"].location == NSNotFound) {
+        NSString *cachePath = [[NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"pci.ids"] copy];
+        source = [NSString stringWithContentsOfFile:cachePath encoding:NSUTF8StringEncoding error:nil];
+    }
+    char *sourceCString = source ? strdup(source.UTF8String) : NULL;
+    char *handle = sourceCString;
     NSNumber *currentClass;
     NSNumber *currentVendor;
     char buffer[LINE_MAX];
-    sscanf(strstr(handle, "Version:"), "Version: %[^\n]", buffer);
+    const char *version = handle ? strstr(handle, "Version:") : NULL;
+    if (version) {
+        sscanf(version, "Version: %[^\n]", buffer);
+    } else {
+        strlcpy(buffer, "Unknown", sizeof(buffer));
+    }
     long device_id, subclass_id;
     char *buf;
     bool class_parse = false;
-    while((buf = strsep(&handle, "\n")) != NULL) {
+    if (handle) while((buf = strsep(&handle, "\n")) != NULL) {
         if (buf[0] == '#' || strlen(buf) <= 4) continue;
         if (*buf == 'C') class_parse = true;
         if (class_parse) {
@@ -142,9 +158,9 @@
             }
         }
     }
-    free(handle);
+    free(sourceCString);
     io_iterator_t itThis;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("IOPCIDevice"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPCIDevice"), &itThis) == KERN_SUCCESS) {
         io_service_t service;
         while((service = IOIteratorNext(itThis))){
             pciDevice *device = [pciDevice create:service classes:classes vendors:vendors];
@@ -217,7 +233,7 @@
     io_service_t service;
     io_service_t parent;
     io_name_t name;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("VoodooHDADevice"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("VoodooHDADevice"), &itThis) == KERN_SUCCESS) {
         while((service = IOIteratorNext(itThis))) {
             IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent);
             IORegistryEntryGetName(parent, name);
@@ -261,7 +277,7 @@
         }
         IOObjectRelease(itThis);
     }
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("AppleHDAController"), &itThis) == KERN_SUCCESS){
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AppleHDAController"), &itThis) == KERN_SUCCESS){
         while((service = IOIteratorNext(itThis))) {
             IORegistryEntryGetParentEntry(service, kIOServicePlane, &parent);
             IORegistryEntryGetName(parent, name);
@@ -307,7 +323,7 @@
     for(pciDevice *pci in [devices sortedArrayUsingComparator:^NSComparisonResult(id obj1, id obj2) { return [obj1 bdf] - [obj2 bdf]; }]) {
         matchString = [NSString stringWithFormat:kPCIFormat, pci.vendor.integerValue, pci.device.integerValue];
         if (pci.pciClassCode.integerValue == 0x40300 && ![filter containsObject:matchString]) {
-            if ((service = IOServiceGetMatchingService(kIOMasterPortDefault, IORegistryEntryIDMatching(pci.entryID)))){
+            if ((service = IOServiceGetMatchingService(kIOMainPortDefault, IORegistryEntryIDMatching(pci.entryID)))){
                 io_connect_t connect;
                 if (IOServiceOpen(service, mach_task_self(), 0, &connect) == KERN_SUCCESS){
                     //FIXME: Map Memory
@@ -355,7 +371,7 @@
     io_service_t service;
     io_service_t parent;
     io_name_t name;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("AtiFbStub"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AtiFbStub"), &itThis) == KERN_SUCCESS) {
         NSMutableDictionary *card;
         int ports = 0;
         unsigned long long old;
@@ -391,7 +407,7 @@
         }
         IOObjectRelease(itThis);
     }
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("IONDRVDevice"), &itThis) == KERN_SUCCESS){
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IONDRVDevice"), &itThis) == KERN_SUCCESS){
         NSMutableDictionary *card;
         int ports = 0;
         unsigned long long old;
@@ -430,7 +446,7 @@
         }
         IOObjectRelease(itThis);
     }
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("AppleIntelFramebuffer"), &itThis) == KERN_SUCCESS){
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("AppleIntelFramebuffer"), &itThis) == KERN_SUCCESS){
         NSMutableDictionary *card;
         int ports = 0;
         unsigned long long old;
@@ -498,7 +514,7 @@
 - (NSArray *) listNetwork {
     NSMutableArray *temp = [NSMutableArray array];
     io_iterator_t itThis;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("IONetworkInterface"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IONetworkInterface"), &itThis) == KERN_SUCCESS) {
         io_service_t service;
         while((service = IOIteratorNext(itThis))){
             io_service_t parent;
@@ -565,7 +581,7 @@
 - (NSArray *) listConnected {
     NSMutableArray *temp = [NSMutableArray array];
     io_iterator_t itThis;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("IOUSBDevice"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOUSBDevice"), &itThis) == KERN_SUCCESS) {
         io_service_t service;
         while((service = IOIteratorNext(itThis))){
             NSString *DeviceID;

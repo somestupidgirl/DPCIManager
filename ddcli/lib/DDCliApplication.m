@@ -169,7 +169,7 @@ int DDCliAppRunWithClass(Class delegateClass)
     }
 }
 
-int DDCliAppRunWithDefaultClass()
+int DDCliAppRunWithDefaultClass(void)
 {
     return DDCliAppRunWithClass(nil);
 }

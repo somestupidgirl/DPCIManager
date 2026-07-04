@@ -203,7 +203,7 @@
     fclose(handle);
     NSMutableArray *pcis = [NSMutableArray array];
     io_iterator_t itThis;
-    if (IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching("IOPCIDevice"), &itThis) == KERN_SUCCESS) {
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPCIDevice"), &itThis) == KERN_SUCCESS) {
         io_service_t service;
         while((service = IOIteratorNext(itThis))){
             pciDevice *pci = [pciDevice create:service classes:classes vendors:vendors];
@@ -252,7 +252,7 @@
     NSMutableString *str = [NSMutableString stringWithFormat:@"%08x%08x", CFSwapInt32HostToBig(1), h64tob32(array.count)];
     for (efiObject *obj in array) {
         NSMutableString *efi = [NSMutableString stringWithFormat:@"%08x", 0x7fff0400];
-        io_service_t service = IOServiceGetMatchingService(kIOMasterPortDefault, (__bridge_retained CFDictionaryRef)[pciDevice match:obj.device]);
+        io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, (__bridge_retained CFDictionaryRef)[pciDevice match:obj.device]);
         while (true) {
             NSString *property;
             if ((property = [pciDevice grabString:CFSTR("pcidebug") forService:service]) && property.length) {

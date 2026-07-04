@@ -56,11 +56,6 @@
     [cond waitOn:0];
 }
 
-#pragma mark NSToolbarDelegate
--(BOOL)validateToolbarItem:(NSToolbarItem *)theItem{
-    return theItem.isEnabled;
-}
-
 #pragma mark GUI
 -(IBAction)copy:(id)sender{
     NSResponder *obj = [[NSApp keyWindow] firstResponder];
@@ -80,7 +75,7 @@
             else {
                 NSCell *cell;
                 while (i < j)
-                    if ((cell = [(NSTableView *)obj preparedCellAtColumn:i++ row:idx]) && [cell isKindOfClass:NSTextFieldCell.class])
+                    if ((cell = [[[(NSTableView *)obj tableColumns] objectAtIndex:i++] dataCellForRow:idx]) && [cell isKindOfClass:NSTextFieldCell.class])
                         [row addObject:[cell.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]];
             }
             [row removeObject:@""];
@@ -110,7 +105,7 @@
     pciDevice *pci = [c.arrangedObjects objectAtIndex:[sender clickedRow]];
     io_service_t service;
     NSURL *url;
-    if ((service = IOServiceGetMatchingService(kIOMasterPortDefault, IORegistryEntryIDMatching(pci.entryID)))) {
+    if ((service = IOServiceGetMatchingService(kIOMainPortDefault, IORegistryEntryIDMatching(pci.entryID)))) {
         io_service_t child;
         if (pci.pciClassCode.integerValue == 0x30000) {
             io_iterator_t itThis;
@@ -164,18 +159,35 @@
 -(IBAction)install:(id)sender{
     NSString *version = [[[[NSDictionary dictionaryWithContentsOfFile:@"/System/Library/CoreServices/SystemVersion.plist"] objectForKey:@"ProductVersion"] componentsSeparatedByString:@"."] objectAtIndex:1];
     NSOpenPanel *open = [NSOpenPanel openPanel];
-    [open setAllowedFileTypes:@[@"kext"]];
-    if ([open runModal] == NSFileHandlingPanelCancelButton) return;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    {
+        [open setAllowedFileTypes:@[@"kext"]];
+    }
+#pragma clang diagnostic pop
+    if ([open runModal] == NSModalResponseCancel) return;
     NSString *kext = open.URL.path;
     // Scan SLE first
     if ([NSFileManager.defaultManager fileExistsAtPath:[kSLE stringByAppendingPathComponent:kext.lastPathComponent]]){
-        if (NSRunAlertPanel(@"Kernel Extension Already Exists", @"You are attempting to replace an existing kernel extension, continue?", nil, @"Cancel", nil) != NSAlertDefaultReturn)
+        NSAlert *alert = [NSAlert new];
+        alert.alertStyle = NSAlertStyleWarning;
+        alert.messageText = @"Kernel Extension Already Exists";
+        alert.informativeText = @"You are attempting to replace an existing kernel extension, continue?";
+        [alert addButtonWithTitle:@"Cancel"];
+        [alert addButtonWithTitle:@"Replace"];
+        if ([alert runModal] != NSAlertSecondButtonReturn)
             return;
         [AScript adminExec:[NSString stringWithFormat:@"/bin/rm -r '%@'", [kSLE stringByAppendingPathComponent:[kext.lastPathComponent stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"]]]];
     }
     // Scan LE if version is or more 10.11
     if (version.integerValue >= 11 && [NSFileManager.defaultManager fileExistsAtPath:[kLE stringByAppendingPathComponent:kext.lastPathComponent]]){
-        if (NSRunAlertPanel(@"Kernel Extension Already Exists", @"You are attempting to replace an existing kernel extension, continue?", nil, @"Cancel", nil) != NSAlertDefaultReturn)
+        NSAlert *alert = [NSAlert new];
+        alert.alertStyle = NSAlertStyleWarning;
+        alert.messageText = @"Kernel Extension Already Exists";
+        alert.informativeText = @"You are attempting to replace an existing kernel extension, continue?";
+        [alert addButtonWithTitle:@"Cancel"];
+        [alert addButtonWithTitle:@"Replace"];
+        if ([alert runModal] != NSAlertSecondButtonReturn)
             return;
         [AScript adminExec:[NSString stringWithFormat:@"/bin/rm -r '%@'", [kLE stringByAppendingPathComponent:[kext.lastPathComponent stringByReplacingOccurrencesOfString:@"'" withString:@"\\'"]]]];
     }
@@ -190,23 +202,33 @@
     if ([sender selectedRow] == -1) return;
     pciDevice *device = [[[status objectForKey:@"network"] objectAtIndex:[sender selectedRow]] objectForKey:@"device"];
     if ([device isMemberOfClass:[NSNull class]]) {
-        NSRunAlertPanel(@"Not a PCI Device", @"The chosen interface is not a PCI device", nil, nil, nil);
+        NSAlert *alert = [NSAlert new];
+        alert.alertStyle = NSAlertStyleInformational;
+        alert.messageText = @"Not a PCI Device";
+        alert.informativeText = @"The chosen interface is not a PCI device";
+        [alert addButtonWithTitle:@"OK"];
+        [alert runModal];
         return;
     }
     NSString *efi = [efiObject stringWithArray:@[[efiObject create:device injecting:@{@"built-in":@(YES)}]]];
-    if (efi)
-        NSRunInformationalAlertPanel(@"Ethernet EFI String", @"Add the following to org.chameleon.boot.plist\n<key>device-properties</key>\n<string>%@</string>", nil, nil, nil, efi);
-    else
+    if (efi) {
+        NSAlert *alert = [NSAlert new];
+        alert.alertStyle = NSAlertStyleInformational;
+        alert.messageText = @"Ethernet EFI String";
+        alert.informativeText = [NSString stringWithFormat:@"Add the following to org.chameleon.boot.plist\n<key>device-properties</key>\n<string>%@</string>", efi];
+        [alert addButtonWithTitle:@"OK"];
+        [alert runModal];
+    } else
         NSBeep();
 }
 -(IBAction)fetchvBIOS:(id)sender{
     if ([sender clickedRow] == -1) return;
     NSOpenPanel *open = DirectoryChooser();
     [open setTitle:@"Save Video BIOS"];
-    if ([open runModal] != NSFileHandlingPanelOKButton) return;
+    if ([open runModal] != NSModalResponseOK) return;
     pciDevice *device = [[[status objectForKey:@"graphics"] objectAtIndex:[sender clickedRow]] objectForKey:@"device"];
     io_service_t service;
-    if ((service = IOServiceGetMatchingService(kIOMasterPortDefault, IORegistryEntryIDMatching(device.entryID)))) {
+    if ((service = IOServiceGetMatchingService(kIOMainPortDefault, IORegistryEntryIDMatching(device.entryID)))) {
         NSError *err;
         NSData *bin;
         if ((bin = (__bridge_transfer NSData *)IORegistryEntryCreateCFProperty(service, CFSTR("ATY,bin_image"), kCFAllocatorDefault, 0))) {
@@ -217,9 +239,14 @@
             [bin writeToFile:[NSString stringWithFormat:@"%@/%04lx_%04lx.rom", open.URL.path, device.vendor.integerValue, device.device.integerValue] options:NSDataWritingAtomic error:&err];
             ModalError(err);
         }
-        else if (device.vendor.integerValue == 0x10DE)
-            NSRunInformationalAlertPanel(@"NVidia Video BIOS Not Loaded", @"The video BIOS was not loaded at boot. Please reboot, enter 'VBIOS=Yes', and try again.", nil, nil, nil);
-        else NSBeep();
+        else if (device.vendor.integerValue == 0x10DE) {
+            NSAlert *alert = [NSAlert new];
+            alert.alertStyle = NSAlertStyleInformational;
+            alert.messageText = @"NVidia Video BIOS Not Loaded";
+            alert.informativeText = @"The video BIOS was not loaded at boot. Please reboot, enter 'VBIOS=Yes', and try again.";
+            [alert addButtonWithTitle:@"OK"];
+            [alert runModal];
+        } else NSBeep();
         IOObjectRelease(service);
     }
 }
@@ -234,9 +261,14 @@
     // Save info
     NSSavePanel *sp = NSSavePanel.savePanel;
     [sp setDirectoryURL:[NSURL URLWithString:[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject]]];
-    [sp setAllowedFileTypes:@[@"txt"]];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    {
+        [sp setAllowedFileTypes:@[@"txt"]];
+    }
+#pragma clang diagnostic pop
     [sp beginSheetModalForWindow:NSApp.mainWindow completionHandler:^(NSInteger result){
-        if(result == NSFileHandlingPanelOKButton){
+        if(result == NSModalResponseOK){
             [sp orderOut:self];
             [deviceList writeToURL:sp.URL atomically:YES encoding:NSUTF8StringEncoding error:nil];
         }
